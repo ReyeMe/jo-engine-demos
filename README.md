@@ -1,2 +1,2 @@
 # jo-engine-demos
-Demost and samples written for jo-engine
+Demos and samples written for jo-engine
