@@ -1,9 +1,5 @@
 #include <jo/jo.h>
 
-// Demo settings
-// Un-comment this line to see the image drawn on NBG1 instead of sprite
-//#define DRAW_ON_NBG1
-
 // Buffer size and offsets definition
 #define BUFFER_WIDTH (160)
 #define BUFFER_HEIGHT (112)
@@ -21,14 +17,12 @@ jo_img FrameBuffer;
 jo_camera Cam;
 
 // Cube that will be rendered outside of the visible area
-jo_vertice CubeOutsideVertices[] = JO_3D_CUBE_VERTICES(32);
+jo_vertice CubeOutsideVertices[] = JO_3D_CUBE_VERTICES(28);
 jo_3d_quad CubeOutsideQuads[6];
 jo_rot3D CubeOutsideRotation;
 
-// Cube that will be rendered inside of the visible area
-jo_vertice CubeInsideVertices[] = JO_3D_CUBE_VERTICES(32);
-jo_3d_quad CubeInsideQuads[6];
-jo_rot3D CubeInsideRotation;
+// Are we rendering first frame?
+bool FirstFrame = true;
 
 /** @brief This will fetch the data from VDP1 frame buffer into our frame buffer in HWRAM.
  */
@@ -54,13 +48,8 @@ void CopyBufferVDP1(void)
     // Fetch VDP1 frame buffer into our frame buffer in HWRam
     GetFrameBufferVDP1();
 
-#ifdef DRAW_ON_NBG1
     // Set rendered frame as NBG1 layer
     jo_vdp2_set_nbg1_image(&FrameBuffer, 0, 0);
-#else
-    // Set rendered frame as sprite
-    jo_sprite_replace(&FrameBuffer, 0);
-#endif
 }
 
 /** @brief Draw cube that is outside of visible area
@@ -73,39 +62,6 @@ void DrawOutsideCube()
         jo_3d_draw_array(CubeOutsideQuads, 6);
     }
     jo_3d_pop_matrix();
-}
-
-/** @brief Draw cube that is inside of visible area
- */
-void DrawInsideCube()
-{
-    jo_3d_push_matrix();
-    {
-        jo_3d_rotate_matrix(CubeInsideRotation.rx, CubeInsideRotation.ry, CubeInsideRotation.rz);
-        jo_3d_draw_array(CubeInsideQuads, 6);
-    }
-    jo_3d_pop_matrix();
-}
-
-/** @brief Make cube that will be drawin in the visible area
- */
-void CreateInsideCube()
-{
-    // Initialize cube rotation
-    CubeInsideRotation.rx = 0;
-    CubeInsideRotation.ry = 0;
-    CubeInsideRotation.rz = 0;
-
-    // Initialize cube quads
-    jo_3d_create_cube(CubeInsideQuads, CubeInsideVertices);
-
-    for (int i = 0; i < 6; ++i)
-    {
-        jo_3d_set_texture(&CubeInsideQuads[i], 0);
-
-        // This will make quad draw only inside of slWindow (jo_3d_window)
-        JO_ADD_FLAG(CubeInsideQuads[i].data.attbl[0].atrb, Window_In);
-    }
 }
 
 /** @brief Make cube that will be in the outside area andwill be rendered to an image
@@ -122,7 +78,7 @@ void CreateOutsideCube()
 
     for (int i = 0; i < 6; ++i)
     {
-        jo_3d_set_texture(&CubeOutsideQuads[i], 1);
+        jo_3d_set_texture(&CubeOutsideQuads[i], 0);
 
         // This will make quad draw only inside of slWindow (jo_3d_window)
         JO_ADD_FLAG(CubeOutsideQuads[i].data.attbl[0].atrb, Window_In);
@@ -132,10 +88,15 @@ void CreateOutsideCube()
 /** @brief This will draw a solid colored sprite to clear the frame buffer
  *  @param color Color to clear buffer with
  */
-void ClearFrameBuffer(const jo_color color)
+void ClearFrameBuffer(const jo_color color, bool halfTransparent)
 {
     // Define sprite attributes (solid color polygon)
     SPR_ATTR attribute = SPR_ATTRIBUTE(No_Texture, color, No_Gouraud, Window_In, sprPolygon);
+    
+    if (halfTransparent)
+    {
+        attribute.atrb |= CL_Trans;
+    }
 
     // Define sprite points
     FIXED x = jo_int2fixed(BUFFER_WIDTH >> 1);
@@ -156,14 +117,9 @@ void ClearFrameBuffer(const jo_color color)
 void DemoLogic()
 {
     // Rotate cube in outside area
-    CubeOutsideRotation.rx += 1;
-    CubeOutsideRotation.ry -= 1;
-    CubeOutsideRotation.rz += 1;
-
-    // Rotate cube in inside area
-    CubeInsideRotation.rx -= 2;
-    CubeInsideRotation.ry += 1;
-    CubeInsideRotation.rz += 2;
+    CubeOutsideRotation.rx += 2;
+    CubeOutsideRotation.ry -= 2;
+    CubeOutsideRotation.rz += 2;
 }
 
 /** @brief Redering loop
@@ -187,16 +143,19 @@ void DemoDraw()
 
     // We need to clear frame buffer before drawing anything
     // Clearing frame buffer is not needed if our scene covers it whole. Here we need it as our cube covers only portion.
-    ClearFrameBuffer(JO_COLOR_Transparent);
+    // On very first frame we need to draw solid black polygon, since the framebuffer in that outside region can be whatever, but most likely white
+    ClearFrameBuffer(JO_COLOR_Black, !FirstFrame);
 
     // Draw cube
     DrawOutsideCube();
 
-    // Set window to fullscreen and draw cube in visible area
+    // Set window to fullscreen and draw in visible area
     jo_3d_window(0,0,JO_TV_WIDTH,JO_TV_HEIGHT, ZLIMIT, JO_TV_WIDTH_2, JO_TV_HEIGHT_2);
 
-    // Draw cube in visible area
-    DrawInsideCube();
+    if (FirstFrame)
+    {
+        FirstFrame = false;
+    }
 }
 
 /** @brief Application entry point
@@ -217,19 +176,11 @@ void jo_main(void)
     // Initialize camera
     jo_3d_camera_init(&Cam);
 
-    // Load/initialize texture for box inside of visible area
-#ifdef DRAW_ON_NBG1
-    jo_sprite_add_tga(JO_ROOT_DIR, "BOX.TGA", JO_COLOR_Transparent);
-#else
-    jo_sprite_add(&FrameBuffer);
-#endif
-
     // Load texture for box drawn outside of visible area
-    jo_sprite_add_tga(JO_ROOT_DIR, "BOX2.TGA", JO_COLOR_Transparent);
+    jo_sprite_add_tga(JO_ROOT_DIR, "BOX.TGA", JO_COLOR_Transparent);
 
     // Initialize cubes
     CreateOutsideCube();
-    CreateInsideCube();
 
     // Bind START+ABC to go to cd player
     jo_core_set_restart_game_callback(jo_goto_boot_menu);
@@ -240,24 +191,23 @@ void jo_main(void)
     jo_core_add_callback(DemoLogic);
 
     // Title text
-    jo_printf(9,1,"demo - render to image");
+    jo_printf(9,1,"demo - blur");
 
     // Description
     jo_printf(1,3,"This demo shows VDP1 rendering");
     jo_printf(1,4,"a rotating cube offscreen and then");
-    jo_printf(1,5,"putting the rendered image as a");
-    jo_printf(1,6,"texture on another rotating cube.");
+    jo_printf(1,5,"bluring it by rendering half");
+    jo_printf(1,6,"transparent quad over it.");
 
     // Credits
     jo_set_printf_color_index(JO_COLOR_INDEX_Red);
     jo_printf(1,22,"Demo made by Reye");
 
-    jo_set_printf_color_index(JO_COLOR_INDEX_Yellow);
-    jo_printf(1,24,"Special thanks to XL2, mrkotfw");
-    jo_printf(1,25,"and hitomi2500 for help.");
-
     // Reset printf color
     jo_set_printf_color_index(JO_COLOR_INDEX_White);
+
+    // Move NBG1 so that the cube rendered on it is in middle of the screen
+    jo_move_background(-((JO_TV_WIDTH - BUFFER_WIDTH) / 2), -((JO_TV_HEIGHT - BUFFER_HEIGHT) / 2));
 
     // Start demo
     jo_core_run();
